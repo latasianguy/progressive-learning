@@ -4,7 +4,7 @@ Corresponding Email: levinewill@icloud.com
 '''
 import numpy as np
 
-from .base import ClassificationDecider
+from .base import BaseDecider, ClassificationDecider
 
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.linear_model import Ridge
@@ -20,13 +20,57 @@ from sklearn.utils.multiclass import type_of_target
 
 class SimpleAverage(ClassificationDecider):
     """
-    Doc string here.
+        A class for a decider for classification that uses average vote. 
+        Uses ClassificationDecider as a base class.
+        
+        Parameters:
+        -----------
+        classes : list, default=[]
+            Defaults to an empty list of classes.
+            
+        Attributes (class):
+        -----------
+        None
+        
+        Attributes (objects):
+        -----------
+        None
     """
 
     def __init__(self, classes=[]):
         self.classes = classes
 
     def fit(
+        """
+        Function for fitting.
+        Initalizes attributes (classes, transformer_id_to_transformers, 
+        and transformer_id_to_voters) of a ClassificationDecider.
+        
+        Parameters:
+        -----------
+        X : ndarray
+            Input data matrix.
+        y : ndarray
+            Output (i.e. response) data matrix.
+            
+        transformer_id_to_transformers : dict
+            A dictionary with keys of type obj corresponding to transformer ids
+            and values of type obj corresponding to a transformer. This dictionary 
+            maps transformers to a particular transformer id.
+            
+        transformer_id_to_voters : dict
+            A dictionary with keys of type obj corresponding to transformer ids
+            and values of type obj corresponding to a voter class. This dictionary thus
+            maps voter classes to a particular transformer id.
+            
+        classes : list, default=None
+            A list of classes of type obj.
+            
+        Returns:
+        ----------
+        SimpleAverage obj
+            The ClassificationDecider object of class SimpleAverage is returned.
+    """
         self,
         X,
         y,
@@ -34,18 +78,35 @@ class SimpleAverage(ClassificationDecider):
         transformer_id_to_voters,
         classes=None,
     ):
-        if not isinstance(self.classes, (list, np.ndarray)):
-            if len(y) == 0:
-                raise ValueError("Classification Decider classes undefined with no class labels fed to fit")
-            else:
-                self.classes = np.unique(y)
-        else:
-            self.classes = np.array(self.classes)
+        self.classes = self.classes if len(self.classes) > 0 else np.unique(y)
         self.transformer_id_to_transformers = transformer_id_to_transformers
         self.transformer_id_to_voters = transformer_id_to_voters
-        return self
 
+        return self
+    
     def predict_proba(self, X, transformer_ids=None):
+    """
+        Predicts probabilities.
+        
+        Loops through each transformer and bag of transformers.
+        Performs a transformation of the input data with the transformer.
+        Gets a voter to map the transformed input data into a posterior distribution.
+        Gets the mean vote per bag and append it to a vote per transformer id.
+        Returns the average vote per transformer id.
+        
+        Parameters:
+        -----------
+        X : ndarray
+            Input data matrix.
+            
+        transformer_ids : list, default=None
+            A list with all transformer ids. Defaults to None if no transformer ids
+            are given.
+        
+        Returns:
+        -----------
+        Returns average vote per transformer id.
+    """
         vote_per_transformer_id = []
         for transformer_id in (
             transformer_ids
@@ -67,5 +128,167 @@ class SimpleAverage(ClassificationDecider):
         return np.mean(vote_per_transformer_id, axis=0)
 
     def predict(self, X, transformer_ids=None):
+    """
+        Predicts the most likely class.
+        
+        Uses the predict_proba method to get the mean vote per id. 
+        Returns the class with the highest vote.
+        
+        Parameters:
+        -----------
+        X : ndarray
+            Input data matrix.
+            
+        transformer_ids : list?, default=None
+            A list with all transformer ids. Defaults to None if no transformer ids
+            are given.
+            
+        Returns:
+        -----------
+        The most likely class object.
+    """
         vote_overall = self.predict_proba(X, transformer_ids=transformer_ids)
         return self.classes[np.argmax(vote_overall, axis=1)]
+
+
+class KNNRegressionDecider(BaseDecider):
+    """
+    Doc string here.
+    """
+
+    def __init__(self, k=None):
+        self.k = k
+        self._is_fitted = False
+
+    def fit(self, X, y, transformer_id_to_transformers, transformer_id_to_voters):
+        X, y = check_X_y(X, y)
+        n = len(y)
+        if not self.k:
+            self.k = min(16 * int(np.log2(n)), int(0.33 * n))
+
+        # Because this instantiation relies on using the same transformers at train
+        # and test time, we need to store them.
+        self.transformer_ids = list(transformer_id_to_transformers.keys())
+        self.transformer_id_to_transformers = transformer_id_to_transformers
+        self.transformer_id_to_voters = transformer_id_to_voters
+
+        yhats = self.ensemble_represetations(X)
+
+        self.knn = KNeighborsRegressor(self.k, weights="distance", p=1)
+        self.knn.fit(yhats, y)
+
+        self._is_fitted = True
+        return self
+
+    def predict(self, X, transformer_ids=None):
+        if not self.is_fitted():
+            msg = (
+                "This %(name)s instance is not fitted yet. Call 'fit' with "
+                "appropriate arguments before using this transformer."
+            )
+            raise NotFittedError(msg % {"name": type(self).__name__})
+
+        X = check_array(X)
+
+        yhats = self.ensemble_represetations(X)
+
+        return self.knn.predict(yhats)
+
+    def is_fitted(self):
+        """
+        Doc strings here.
+        """
+
+        return self._is_fitted
+
+    def ensemble_represetations(self, X):
+        n = len(X)
+
+        # transformer_ids input is ignored - you can only use
+        # the transformers you are trained on.
+        yhats = np.zeros((n, len(self.transformer_ids)))
+
+        # Transformer IDs may not necessarily be {0, ..., num_transformers - 1}.
+        for i in range(len(self.transformer_ids)):
+
+            transformer_id = self.transformer_ids[i]
+
+            # The zero index is for the 'bag_id' as in random forest,
+            # where multiple transformers are bagged together in each hypothesis.
+            transformer = self.transformer_id_to_transformers[transformer_id][0]
+            X_transformed = transformer.transform(X)
+            voter = self.transformer_id_to_voters[transformer_id][0]
+            yhats[:, i] = voter.vote(X_transformed).reshape(n)
+
+        return yhats
+
+
+class LinearRegressionDecider(BaseDecider):
+    """
+    Doc string here.
+    """
+
+    def __init__(self, lambda_=0.0):
+        self.lambda_ = lambda_
+        self._is_fitted = False
+
+    def fit(
+        self, X, y, transformer_id_to_transformers, transformer_id_to_voters,
+    ):
+        X, y = check_X_y(X, y)
+
+        # Because this instantiation relies on using the same transformers at train
+        # and test time, we need to store them.
+        self.transformer_ids = list(transformer_id_to_transformers.keys())
+        self.transformer_id_to_transformers = transformer_id_to_transformers
+        self.transformer_id_to_voters = transformer_id_to_voters
+
+        yhats = self.ensemble_represetations(X)
+
+        self.ridge = Ridge(self.lambda_)
+        self.ridge.fit(yhats, y)
+
+        self._is_fitted = True
+        return self
+
+    def predict(self, X, transformer_ids=None):
+        if not self.is_fitted():
+            msg = (
+                "This %(name)s instance is not fitted yet. Call 'fit' with "
+                "appropriate arguments before using this transformer."
+            )
+            raise NotFittedError(msg % {"name": type(self).__name__})
+
+        X = check_array(X)
+
+        yhats = self.ensemble_represetations(X)
+
+        return self.ridge.predict(yhats)
+
+    def is_fitted(self):
+        """
+        Doc strings here.
+        """
+
+        return self._is_fitted
+
+    def ensemble_represetations(self, X):
+        n = len(X)
+
+        # transformer_ids input is ignored - you can only use the transformers
+        # you are trained on.
+        yhats = np.zeros((n, len(self.transformer_ids)))
+
+        # Transformer IDs may not necessarily be {0, ..., num_transformers - 1}.
+        for i in range(len(self.transformer_ids)):
+
+            transformer_id = self.transformer_ids[i]
+
+            # The zero index is for the 'bag_id' as in random forest,
+            # where multiple transformers are bagged together in each hypothesis.
+            transformer = self.transformer_id_to_transformers[transformer_id][0]
+            X_transformed = transformer.transform(X)
+            voter = self.transformer_id_to_voters[transformer_id][0]
+            yhats[:, i] = voter.vote(X_transformed).reshape(n)
+
+        return yhats
