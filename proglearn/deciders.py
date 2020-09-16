@@ -20,21 +20,32 @@ from sklearn.utils.multiclass import type_of_target
 
 class SimpleAverage(ClassificationDecider):
     """
-        A class for a decider for classification that uses average vote. 
-        Uses ClassificationDecider as a base class.
+    A class for a decider that uses the average vote for classification. 
+    Uses ClassificationDecider as a base class.
+
+    Parameters:
+    -----------
+    classes : list, default=[]
+        Defaults to an empty list of classes.
+
+    Attributes (class):
+    -----------
+    None
+
+    Attributes (objects):
+    -----------
+    classes : list, default=[]
+        Defaults to an empty list of classes.
+    
+    transformer_id_to_transformers : dict
+        A dictionary with keys of type obj corresponding to transformer ids
+        and values of type obj corresponding to a transformer. This dictionary 
+        maps transformers to a particular transformer id.
         
-        Parameters:
-        -----------
-        classes : list, default=[]
-            Defaults to an empty list of classes.
-            
-        Attributes (class):
-        -----------
-        None
-        
-        Attributes (objects):
-        -----------
-        None
+    transformer_id_to_voters : dict
+        A dictionary with keys of type obj corresponding to transformer ids
+        and values of type obj corresponding to a voter class. This dictionary
+        maps voter classes to a particular transformer id.
     """
 
     def __init__(self, classes=[]):
@@ -43,7 +54,7 @@ class SimpleAverage(ClassificationDecider):
     def fit(
         """
         Function for fitting.
-        Initalizes attributes (classes, transformer_id_to_transformers, 
+        Stores attributes (classes, transformer_id_to_transformers, 
         and transformer_id_to_voters) of a ClassificationDecider.
         
         Parameters:
@@ -70,7 +81,7 @@ class SimpleAverage(ClassificationDecider):
         ----------
         SimpleAverage obj
             The ClassificationDecider object of class SimpleAverage is returned.
-    """
+        """
         self,
         X,
         y,
@@ -85,8 +96,8 @@ class SimpleAverage(ClassificationDecider):
         return self
     
     def predict_proba(self, X, transformer_ids=None):
-    """
-        Predicts probabilities.
+        """
+        Predicts posterior probabilities per input example.
         
         Loops through each transformer and bag of transformers.
         Performs a transformation of the input data with the transformer.
@@ -105,8 +116,8 @@ class SimpleAverage(ClassificationDecider):
         
         Returns:
         -----------
-        Returns average vote per transformer id.
-    """
+        Returns mean vote across transformer ids.
+        """
         vote_per_transformer_id = []
         for transformer_id in (
             transformer_ids
@@ -128,7 +139,7 @@ class SimpleAverage(ClassificationDecider):
         return np.mean(vote_per_transformer_id, axis=0)
 
     def predict(self, X, transformer_ids=None):
-    """
+        """
         Predicts the most likely class.
         
         Uses the predict_proba method to get the mean vote per id. 
@@ -145,15 +156,33 @@ class SimpleAverage(ClassificationDecider):
             
         Returns:
         -----------
-        The most likely class object.
-    """
+        An ndarray of type int where n is the length of the input data matrix X.
+        """
         vote_overall = self.predict_proba(X, transformer_ids=transformer_ids)
         return self.classes[np.argmax(vote_overall, axis=1)]
 
 
 class KNNRegressionDecider(BaseDecider):
     """
-    Doc string here.
+    A class for a decider that uses the k nearest-neighbors for regression. 
+    Uses BaseDecider as a base class.
+
+    Parameters:
+    -----------
+    classes : k, default=None
+        Number of nearest neighbors to consider. Defaults to None.
+
+    Attributes (class):
+    -----------
+    None
+
+    Attributes (objects):
+    -----------
+    k : dict, default=None
+        Number of nearest neighbors to consider. Defaults to None.
+        
+    is_fitted : boolean
+        A boolean value for whether the decider is fitted.
     """
 
     def __init__(self, k=None):
@@ -161,6 +190,33 @@ class KNNRegressionDecider(BaseDecider):
         self._is_fitted = False
 
     def fit(self, X, y, transformer_id_to_transformers, transformer_id_to_voters):
+        """
+        Function for fitting.
+        Stores attributes (classes, transformer_id_to_transformers, 
+        and transformer_id_to_voters) of a BaseDecider.
+        
+        Parameters:
+        -----------
+        X : ndarray
+            Input data matrix.
+        y : ndarray
+            Output (i.e. response) data matrix.
+            
+        transformer_id_to_transformers : dict
+            A dictionary with keys of type obj corresponding to transformer ids
+            and values of type obj corresponding to a transformer. This dictionary 
+            maps transformers to a particular transformer id.
+            
+        transformer_id_to_voters : dict
+            A dictionary with keys of type obj corresponding to transformer ids
+            and values of type obj corresponding to a voter class. This dictionary thus
+            maps voter classes to a particular transformer id.
+            
+        Returns:
+        ----------
+        KNNRegressionDecider obj
+            The BaseDecider object of class KNNRegressionDecider is returned.
+        """
         X, y = check_X_y(X, y)
         n = len(y)
         if not self.k:
