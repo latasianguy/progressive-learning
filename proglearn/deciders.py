@@ -5,11 +5,13 @@ Corresponding Email: levinewill@icloud.com
 import numpy as np
 
 from .base import BaseClassificationDecider
+from sklearn.neighbors import KNeighborsClassifier
 
 from sklearn.utils.validation import (
     check_X_y,
     check_array,
     check_is_fitted,
+    NotFittedError,
 )
 
 
@@ -171,3 +173,103 @@ class SimpleArgmaxAverage(BaseClassificationDecider):
         """
         vote_overall = self.predict_proba(X, transformer_ids=transformer_ids)
         return self.classes[np.argmax(vote_overall, axis=1)]
+
+    
+
+class KNNClassificationDecider(BaseClassificationDecider):
+    """
+    Doc string here.
+    """
+
+    def __init__(self, k=None, classes=[]):
+        self.k = k
+        self._is_fitted = False
+        self.classes = classes
+
+    def fit(self, X, y, transformer_id_to_transformers, transformer_id_to_voters):
+        if not isinstance(self.classes, (list, np.ndarray)):
+            if len(y) == 0:
+                raise ValueError(
+                    "Classification Decider classes undefined with no class labels fed to fit"
+                )
+            else:
+                self.classes = np.unique(y)
+        else:
+            self.classes = np.array(self.classes)
+            
+        self.k=int(np.log2(len(X)))
+        X, y = check_X_y(X, y)
+        n = len(y)
+        if not self.k:
+            self.k = min(16 * int(np.log2(n)), int(0.33 * n))
+
+        # Because this instantiation relies on using the same transformers at train
+        # and test time, we need to store them.
+        self.transformer_ids = list(transformer_id_to_transformers.keys())
+        self.transformer_id_to_transformers = transformer_id_to_transformers
+        self.transformer_id_to_voters = transformer_id_to_voters
+
+        yhats = self.ensemble_represetations(X)
+
+        self.knn = KNeighborsClassifier(self.k, weights="distance", p=1)
+        self.knn.fit(yhats, y)
+
+        self._is_fitted = True
+        return self
+    
+    def predict_proba(self, X, transformer_ids=None):
+        if not self.is_fitted():
+            msg = (
+                "This %(name)s instance is not fitted yet. Call 'fit' with "
+                "appropriate arguments before using this transformer."
+            )
+            raise NotFittedError(msg % {"name": type(self).__name__})
+        
+        X = check_array(X)
+
+        yhats = self.ensemble_represetations(X)
+
+        return self.knn.predict_proba(yhats)
+
+    def predict(self, X, transformer_ids=None):
+        if not self.is_fitted():
+            msg = (
+                "This %(name)s instance is not fitted yet. Call 'fit' with "
+                "appropriate arguments before using this transformer."
+            )
+            raise NotFittedError(msg % {"name": type(self).__name__})
+
+        X = check_array(X)
+
+        yhats = self.ensemble_represetations(X)
+
+        return self.knn.predict(yhats)
+
+    def is_fitted(self):
+        """
+        Doc strings here.
+        """
+
+        return self._is_fitted
+
+    def ensemble_represetations(self, X):
+        n = len(X)
+        c = len(self.classes)
+
+        # transformer_ids input is ignored - you can only use
+        # the transformers you are trained on.
+        yhats = np.zeros((n, c * len(self.transformer_ids)))
+
+        # Transformer IDs may not necessarily be {0, ..., num_transformers - 1}.
+        for i in range(len(self.transformer_ids)):
+
+            transformer_id = self.transformer_ids[i]
+
+            # The zero index is for the 'bag_id' as in random forest,
+            # where multiple transformers are bagged together in each hypothesis.
+            transformer = self.transformer_id_to_transformers[transformer_id][0]
+            X_transformed = transformer.transform(X)
+            voter = self.transformer_id_to_voters[transformer_id][0]
+            yhats[:, i*c:i*c+c] = voter.predict_proba(X_transformed).reshape(n, c)
+
+        return yhats

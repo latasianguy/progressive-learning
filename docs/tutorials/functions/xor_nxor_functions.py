@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from proglearn.forest import LifelongClassificationForest, UncertaintyForest
 from proglearn.sims import *
 from proglearn.progressive_learner import ProgressiveLearner
-from proglearn.deciders import SimpleArgmaxAverage
+from proglearn.deciders import SimpleArgmaxAverage, KNNClassificationDecider
 from proglearn.transformers import TreeClassificationTransformer, NeuralClassificationTransformer
 from proglearn.voters import TreeClassificationVoter, KNNClassificationVoter
 
@@ -33,6 +33,7 @@ def plot_xor_nxor(data, labels, title):
 
 def run(mc_rep, n_test, n_trees,n_xor,n_nxor, mean_error, std_error, mean_te, std_te):
     for i,n1 in enumerate(n_xor):
+        k_neighbors = log2(n1)
         #print('starting to compute %s xor\n'%n1)
         #run experiment in parallel
         error = np.array(
@@ -53,6 +54,7 @@ def run(mc_rep, n_test, n_trees,n_xor,n_nxor, mean_error, std_error, mean_te, st
         # initialize learning on n-xor data
         if n1==n_xor[-1]:
             for j,n2 in enumerate(n_nxor):
+                k_neighbors = log2(n2)
                 #print('starting to compute %s nxor\n'%n2)
                 # run experiment in parallel
                 error = np.array(
@@ -131,7 +133,7 @@ def experiment(n_task1, n_task2, n_test=1000,
     default_voter_class = TreeClassificationVoter
     default_voter_kwargs = {}
 
-    default_decider_class = SimpleArgmaxAverage
+    default_decider_class = KNNClassificationDecider
     default_decider_kwargs = {"classes" : np.arange(2)}
     progressive_learner = ProgressiveLearner(default_transformer_class = default_transformer_class,
                                             default_transformer_kwargs = default_transformer_kwargs,
@@ -161,7 +163,8 @@ def experiment(n_task1, n_task2, n_test=1000,
     test_task2, test_label_task2 = generate_gaussian_parity(n_test, angle_params=task2_angle)
 
     if n_task1 == 0:
-        progressive_learner.add_task(X_task2, y_task2, num_transformers=n_trees)
+        progressive_learner.add_task(X_task2, y_task2, num_transformers=n_trees, 
+                                     transformer_voter_decider_split=[0.6,0.3,0.1])
 
         errors[0] = 0.5
         errors[1] = 0.5
@@ -176,8 +179,8 @@ def experiment(n_task1, n_task2, n_test=1000,
         errors[4] = 0.5
         errors[5] = 1 - np.mean(uf_task2 == test_label_task2)
     elif n_task2 == 0:
-        progressive_learner.add_task(X_task1, y_task1,
-                                     num_transformers=n_trees)
+        progressive_learner.add_task(X_task1, y_task1, num_transformers=n_trees, 
+                                     transformer_voter_decider_split=[0.6,0.3,0.1])
 
         uf_task1=progressive_learner.predict(test_task1, 
                                              transformer_ids=[0], task_id=0)
@@ -192,8 +195,10 @@ def experiment(n_task1, n_task2, n_test=1000,
         errors[4] = 1 - np.mean(uf_task1 == test_label_task1)
         errors[5] = 0.5
     else:
-        progressive_learner.add_task(X_task1, y_task1, num_transformers=n_trees)
-        progressive_learner.add_task(X_task2, y_task2, num_transformers=n_trees)
+        progressive_learner.add_task(X_task1, y_task1, num_transformers=n_trees,
+                                     transformer_voter_decider_split=[0.6,0.3,0.1])
+        progressive_learner.add_task(X_task2, y_task2, num_transformers=n_trees,
+                                     transformer_voter_decider_split=[0.6,0.3,0.1])
 
         uf.add_task(X_task1, y_task1, num_transformers=2*n_trees)
         uf.add_task(X_task2, y_task2, num_transformers=2*n_trees)
