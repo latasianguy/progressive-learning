@@ -164,7 +164,7 @@ def experiment(n_task1, n_task2, n_test=1000,
 
     if n_task1 == 0:
         progressive_learner.add_task(X_task2, y_task2, num_transformers=n_trees, 
-                                     transformer_voter_decider_split=[0.6,0.3,0.1])
+                                     transformer_voter_decider_split=[0.5,0.5,0.5])
 
         errors[0] = 0.5
         errors[1] = 0.5
@@ -180,7 +180,8 @@ def experiment(n_task1, n_task2, n_test=1000,
         errors[5] = 1 - np.mean(uf_task2 == test_label_task2)
     elif n_task2 == 0:
         progressive_learner.add_task(X_task1, y_task1, num_transformers=n_trees, 
-                                     transformer_voter_decider_split=[0.6,0.3,0.1])
+                                     transformer_voter_decider_split=[0.5,0.5,0.5])
+        print(len(X_task1))
 
         uf_task1=progressive_learner.predict(test_task1, 
                                              transformer_ids=[0], task_id=0)
@@ -196,9 +197,10 @@ def experiment(n_task1, n_task2, n_test=1000,
         errors[5] = 0.5
     else:
         progressive_learner.add_task(X_task1, y_task1, num_transformers=n_trees,
-                                     transformer_voter_decider_split=[0.6,0.3,0.1])
+                                     transformer_voter_decider_split=[0.5,0.5,0.5])
+        print(len(X_task1))
         progressive_learner.add_task(X_task2, y_task2, num_transformers=n_trees,
-                                     transformer_voter_decider_split=[0.6,0.3,0.1])
+                                     transformer_voter_decider_split=[0.5,0.5,0.5])
 
         uf.add_task(X_task1, y_task1, num_transformers=2*n_trees)
         uf.add_task(X_task2, y_task2, num_transformers=2*n_trees)

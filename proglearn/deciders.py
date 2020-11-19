@@ -210,9 +210,18 @@ class KNNClassificationDecider(BaseClassificationDecider):
         self.transformer_id_to_voters = transformer_id_to_voters
 
         yhats = self.ensemble_represetations(X)
+        
+#         self.knn = KNeighborsClassifier(self.k, weights="distance", p=1)
+#         self.knn.fit(yhats, y)
 
-        self.knn = KNeighborsClassifier(self.k, weights="distance", p=1)
-        self.knn.fit(yhats, y)
+        self.knn = []
+        temp_yhats = np.empty((len(yhats), len(self.transformer_ids)))
+        for i in range(len(self.classes)):
+            self.knn.append(KNeighborsClassifier(self.k, weights="distance", p=1))
+            for j in range(len(self.transformer_ids)):
+                temp_yhats[:, j] = yhats[:, len(self.classes)*j+i]
+            class_label = np.array([1 if element == i else 0 for element in y])
+            self.knn[i].fit(temp_yhats, class_label)
 
         self._is_fitted = True
         return self
@@ -226,10 +235,18 @@ class KNNClassificationDecider(BaseClassificationDecider):
             raise NotFittedError(msg % {"name": type(self).__name__})
         
         X = check_array(X)
-
+        
         yhats = self.ensemble_represetations(X)
 
-        return self.knn.predict_proba(yhats)
+        knn_out = np.empty((len(yhats), len(self.classes)))
+        temp_yhats = np.empty((len(yhats), len(self.transformer_ids)))
+        for i in range(len(self.classes)):
+            for j in range(len(self.transformer_ids)):
+                temp_yhats[:,j] = yhats[:, len(self.classes)*j+i]
+            knn_out[:,i] = self.knn[i].predict_proba(temp_yhats)[:,1]
+        
+        normalized = knn_out/np.sum(knn_out, axis=1, keepdims=True)
+        return normalized
 
     def predict(self, X, transformer_ids=None):
         if not self.is_fitted():
@@ -241,9 +258,8 @@ class KNNClassificationDecider(BaseClassificationDecider):
 
         X = check_array(X)
 
-        yhats = self.ensemble_represetations(X)
-
-        return self.knn.predict(yhats)
+        knn_out = self.predict_proba(X)
+        return np.argmax(knn_out, axis=1)
 
     def is_fitted(self):
         """
