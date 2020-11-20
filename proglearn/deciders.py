@@ -143,6 +143,7 @@ class SimpleArgmaxAverage(BaseClassificationDecider):
                 vote = voter.predict_proba(X_transformed)
                 vote_per_bag_id.append(vote)
             vote_per_transformer_id.append(np.mean(vote_per_bag_id, axis=0))
+        print(vote_per_transformer_id.shape)
         return np.mean(vote_per_transformer_id, axis=0)
 
     def predict(self, X, transformer_ids=None):
@@ -197,7 +198,8 @@ class KNNClassificationDecider(BaseClassificationDecider):
         else:
             self.classes = np.array(self.classes)
             
-        self.k=int(np.log2(len(X)))
+        if self.k == None:
+            self.k=int(np.log2(len(X)))
         X, y = check_X_y(X, y)
         n = len(y)
         if not self.k:
@@ -286,6 +288,7 @@ class KNNClassificationDecider(BaseClassificationDecider):
             transformer = self.transformer_id_to_transformers[transformer_id][0]
             X_transformed = transformer.transform(X)
             voter = self.transformer_id_to_voters[transformer_id][0]
+            print(X.shape, X_transformed.shape)
             yhats[:, i*c:i*c+c] = voter.predict_proba(X_transformed).reshape(n, c)
 
         return yhats
