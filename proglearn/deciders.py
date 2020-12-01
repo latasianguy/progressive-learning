@@ -143,7 +143,6 @@ class SimpleArgmaxAverage(BaseClassificationDecider):
                 vote = voter.predict_proba(X_transformed)
                 vote_per_bag_id.append(vote)
             vote_per_transformer_id.append(np.mean(vote_per_bag_id, axis=0))
-        print(vote_per_transformer_id.shape)
         return np.mean(vote_per_transformer_id, axis=0)
 
     def predict(self, X, transformer_ids=None):
@@ -221,7 +220,7 @@ class KNNClassificationDecider(BaseClassificationDecider):
         for i in range(len(self.classes)):
             self.knn.append(KNeighborsClassifier(self.k, weights="distance", p=1))
             for j in range(len(self.transformer_ids)):
-                temp_yhats[:, j] = yhats[:, len(self.classes)*j+i]
+                temp_yhats[:, j] = yhats[:, i, j]
             class_label = np.array([1 if element == i else 0 for element in y])
             self.knn[i].fit(temp_yhats, class_label)
 
@@ -242,9 +241,10 @@ class KNNClassificationDecider(BaseClassificationDecider):
 
         knn_out = np.empty((len(yhats), len(self.classes)))
         temp_yhats = np.empty((len(yhats), len(self.transformer_ids)))
+        
         for i in range(len(self.classes)):
             for j in range(len(self.transformer_ids)):
-                temp_yhats[:,j] = yhats[:, len(self.classes)*j+i]
+                temp_yhats[:,j] = yhats[:, i, j]
             knn_out[:,i] = self.knn[i].predict_proba(temp_yhats)[:,1]
         
         normalized = knn_out/np.sum(knn_out, axis=1, keepdims=True)
@@ -276,7 +276,7 @@ class KNNClassificationDecider(BaseClassificationDecider):
 
         # transformer_ids input is ignored - you can only use
         # the transformers you are trained on.
-        yhats = np.zeros((n, c * len(self.transformer_ids)))
+        yhats = np.zeros((n, c, len(self.transformer_ids)))
 
         # Transformer IDs may not necessarily be {0, ..., num_transformers - 1}.
         for i in range(len(self.transformer_ids)):
@@ -288,7 +288,6 @@ class KNNClassificationDecider(BaseClassificationDecider):
             transformer = self.transformer_id_to_transformers[transformer_id][0]
             X_transformed = transformer.transform(X)
             voter = self.transformer_id_to_voters[transformer_id][0]
-            print(X.shape, X_transformed.shape)
-            yhats[:, i*c:i*c+c] = voter.predict_proba(X_transformed).reshape(n, c)
+            yhats[:, :, i] = voter.predict_proba(X_transformed).reshape(n, c)
 
         return yhats
