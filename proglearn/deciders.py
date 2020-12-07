@@ -201,8 +201,6 @@ class KNNClassificationDecider(BaseClassificationDecider):
             self.k=int(np.log2(len(X)))
         X, y = check_X_y(X, y)
         n = len(y)
-        if not self.k:
-            self.k = min(16 * int(np.log2(n)), int(0.33 * n))
 
         # Because this instantiation relies on using the same transformers at train
         # and test time, we need to store them.
