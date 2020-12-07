@@ -196,11 +196,10 @@ class KNNClassificationDecider(BaseClassificationDecider):
                 self.classes = np.unique(y)
         else:
             self.classes = np.array(self.classes)
-            
+
         if self.k == None:
             self.k=int(np.log2(len(X)))
         X, y = check_X_y(X, y)
-        n = len(y)
 
         # Because this instantiation relies on using the same transformers at train
         # and test time, we need to store them.
@@ -208,20 +207,37 @@ class KNNClassificationDecider(BaseClassificationDecider):
         self.transformer_id_to_transformers = transformer_id_to_transformers
         self.transformer_id_to_voters = transformer_id_to_voters
 
+        # Set up the samples, classes, transformer and tree counts.
+        num_samples = len(X)
+        num_classes = len(self.classes)
+        num_transformers = len(self.transformer_ids)
+        num_trees = len(self.transformer_id_to_transformers[0])
+        
+        # Get voter predictions of y
         yhats = self.ensemble_represetations(X)
 
         self.knn = []
-        temp_yhats = np.empty((len(yhats), len(self.transformer_ids)))
-        
-        for k in range(len(self.transformer_id_to_voters[0])):
+        temp_yhats = np.empty((num_samples, num_transformers))
+
+        # Iterate across all trees.
+        for bag_id in range(num_trees):
             tree_knns = []
-            for i in range(len(self.classes)):
+            # Iterate across all classes.
+            for class_idx in range(num_classes):
+                # Add a new classifier for each class for each tree.
                 tree_knns.append(KNeighborsClassifier(self.k, weights="distance", p=1))
-                for j in range(len(self.transformer_ids)):
-                    temp_yhats[:, j] = yhats[:, i, j, k]
+                # Iterate across all transformers.
+                for transformer_idx in range(num_transformers):
+                    # Get the single class voter posterior of all transformers from each tree.
+                    temp_yhats[:, transformer_idx] = yhats[:, class_idx,
+                                                           transformer_idx, bag_id]
                 
-                class_label = np.array([1 if element == i else 0 for element in y])
-                tree_knns[i].fit(temp_yhats, class_label)
+                # Create a class specific label and fit a KNNClassifier for a single class
+                # with the voter posteriors from all transformers.
+                class_label = np.array([1 if element == class_idx else 0 for element in y])
+                tree_knns[class_idx].fit(temp_yhats, class_label)
+
+            # Append the fitted KNNClassifiers to the total list of KNNClassifiers.
             self.knn.append(tree_knns)
         
         self._is_fitted = True
@@ -236,20 +252,31 @@ class KNNClassificationDecider(BaseClassificationDecider):
             raise NotFittedError(msg % {"name": type(self).__name__})
         
         X = check_array(X)
-        
+
+        # Set up the samples, classes, transformer and tree counts.
+        num_samples = len(X)
+        num_classes = len(self.classes)
+        num_transformers = len(self.transformer_ids)
+        num_trees = len(self.transformer_id_to_transformers[0])
+
         yhats = self.ensemble_represetations(X)
 
-        knn_out = np.empty((len(yhats), len(self.classes), len(
-            self.transformer_id_to_voters[0]
-        )))
-        temp_yhats = np.empty((len(yhats), len(self.transformer_ids)))
-        
-        for k in range(len(self.transformer_id_to_voters[0])):
-            for i in range(len(self.classes)):
-                for j in range(len(self.transformer_ids)):
-                    temp_yhats[:,j] = yhats[:, i, j, k]
-                knn_out[:,i,k] = self.knn[k][i].predict_proba(temp_yhats)[:,1]
-        
+        knn_out = np.empty((num_samples, num_classes, num_trees))
+        temp_yhats = np.empty((num_samples, num_transformers))
+
+        # Iterate across all trees.
+        for bag_id in range(num_trees):
+            # Iterate across all classes.
+            for class_idx in range(num_classes):
+                # Iterate across all transformers.
+                for transformer_idx in range(num_transformers):
+                    # Get all the voter posteriors from all transformers for each class and tree.
+                    temp_yhats[:,transformer_idx] = yhats[:, class_idx, transformer_idx, bag_id]
+                # Use each knn for each class and tree to predict the probability from the average
+                # voter posterior across all transformers.
+                knn_out[:,class_idx,bag_id] = self.knn[bag_id][class_idx].predict_proba(avg_all_transformers)[:,1]
+
+        # Average the predicted posteriors across all trees and normalize them across all classes.
         mean_knn_out = np.mean(knn_out, axis=2)
         normalized = mean_knn_out/np.sum(mean_knn_out, axis=1, keepdims=True)
         return normalized
@@ -275,26 +302,38 @@ class KNNClassificationDecider(BaseClassificationDecider):
         return self._is_fitted
 
     def ensemble_represetations(self, X):
-        n = len(X)
-        c = len(self.classes)
-        t = len(self.transformer_id_to_transformers[0])
+        # Set up the samples, classes, transformer and tree counts.
+        num_samples = len(X)
+        num_classes = len(self.classes)
+        num_transformers = len(self.transformer_ids)
+        num_trees = len(self.transformer_id_to_transformers[0])
 
-        # transformer_ids input is ignored - you can only use
-        # the transformers you are trained on.
-        yhats = np.zeros((n, c, len(self.transformer_ids), t))
+        # Make output array.
+        yhats = np.zeros((num_samples, num_classes, num_transformers, num_trees))
 
-        # Transformer IDs may not necessarily be {0, ..., num_transformers - 1}.
+        # Iterate across all transformers.
         for transformer_id in (
             self.transformer_ids
             if self.transformer_ids is not None
             else self.transformer_id_to_voters.keys()
         ):
-            for bag_id in range(t):
+            # Iterate across all trees.
+            for bag_id in range(num_trees):
+                # Get a transformer from a specific tree.
                 transformer = self.transformer_id_to_transformers[transformer_id][
                     bag_id
                 ]
+
+                # Transform data with transformer.
                 X_transformed = transformer.transform(X)
+
+                # Get specific voter from transformer and tree indices and predict
+                # on the transformed data.
                 voter = self.transformer_id_to_voters[transformer_id][bag_id]
-                vote = voter.predict_proba(X_transformed).reshape(n, c)
+                vote = voter.predict_proba(X_transformed).reshape(num_samples, num_classes)
+
+                # Add the vote to the output.
                 yhats[:,:,transformer_id,bag_id] = vote
+        
+        # Return voter output of probabilities.
         return yhats
