@@ -274,7 +274,7 @@ class KNNClassificationDecider(BaseClassificationDecider):
                     temp_yhats[:,transformer_idx] = yhats[:, class_idx, transformer_idx, bag_id]
                 # Use each knn for each class and tree to predict the probability from the average
                 # voter posterior across all transformers.
-                knn_out[:,class_idx,bag_id] = self.knn[bag_id][class_idx].predict_proba(avg_all_transformers)[:,1]
+                knn_out[:,class_idx,bag_id] = self.knn[bag_id][class_idx].predict_proba(temp_yhats)[:,1]
 
         # Average the predicted posteriors across all trees and normalize them across all classes.
         mean_knn_out = np.mean(knn_out, axis=2)
